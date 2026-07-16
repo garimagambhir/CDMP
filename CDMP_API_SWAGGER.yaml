@@ -1,0 +1,423 @@
+swagger: "2.0"
+info:
+  title: "CDMP (Informatica Cloud Data Marketplace) API"
+  description: >
+    REST API for Informatica Cloud Data Marketplace (CDMP).
+    Used by the CAI integration layer to poll for pending orders,
+    retrieve order details, and write back ServiceNow ticket references.
+  version: "1.0.0"
+  contact:
+    name: "Incept Data Solutions"
+
+host: "<cdmp-base-url>"
+basePath: "/api/v1"
+schemes:
+  - "https"
+consumes:
+  - "application/json"
+produces:
+  - "application/json"
+
+securityDefinitions: {}
+
+security: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── GET /orders ─────────────────────────────────────────────────────────────
+  /orders:
+    get:
+      operationId: "GetOrders"
+      summary: "Get a list of CDMP orders"
+      description: >
+        Returns a paginated list of orders. Filter by status=PENDING to find
+        orders that need a ServiceNow ticket created.
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          type: "string"
+          description: "Filter by order status."
+          enum:
+            - "PENDING"
+            - "APPROVED"
+            - "REJECTED"
+            - "FULFILLED"
+            - "ERROR"
+        - name: "pageSize"
+          in: "query"
+          required: false
+          type: "integer"
+          default: 50
+          description: "Number of records per page."
+        - name: "pageNumber"
+          in: "query"
+          required: false
+          type: "integer"
+          default: 1
+          description: "Page number (1-based)."
+      responses:
+        200:
+          description: "List of orders returned successfully."
+          schema:
+            $ref: "#/definitions/OrderListResponse"
+        401:
+          description: "Unauthorized — invalid or missing credentials."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+
+  # ── GET /orders/{orderId} ───────────────────────────────────────────────────
+  /orders/{orderId}:
+    get:
+      operationId: "GetOrderById"
+      summary: "Get a specific CDMP order by ID"
+      description: >
+        Returns the full details of a single order. Used to verify write-back
+        and to confirm status updates.
+      parameters:
+        - name: "orderId"
+          in: "path"
+          required: true
+          type: "string"
+          description: "Unique identifier of the CDMP order (UUID)."
+      responses:
+        200:
+          description: "Order details returned successfully."
+          schema:
+            $ref: "#/definitions/Order"
+        404:
+          description: "Order not found."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        401:
+          description: "Unauthorized."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+
+    # ── PATCH /orders/{orderId} ────────────────────────────────────────────────
+    patch:
+      operationId: "UpdateOrder"
+      summary: "Update a CDMP order"
+      description: >
+        Partially updates an order. Used in three scenarios:
+        (1) Write back the ServiceNow ticket number after ticket creation.
+        (2) Update order status to APPROVED or REJECTED after SN approval/rejection.
+        (3) Update order status to FULFILLED after DBA provisions access.
+      parameters:
+        - name: "orderId"
+          in: "path"
+          required: true
+          type: "string"
+          description: "Unique identifier of the CDMP order (UUID)."
+        - name: "body"
+          in: "body"
+          required: true
+          schema:
+            $ref: "#/definitions/OrderUpdateRequest"
+      responses:
+        200:
+          description: "Order updated successfully."
+          schema:
+            $ref: "#/definitions/Order"
+        400:
+          description: "Bad request — invalid field values."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        404:
+          description: "Order not found."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        401:
+          description: "Unauthorized."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+
+  # ── POST /notifications (optional — TBC) ────────────────────────────────────
+  /notifications:
+    post:
+      operationId: "SendNotification"
+      summary: "Send a notification (e.g., DBA provisioning alert)"
+      description: >
+        Triggers a notification from CDMP. Used optionally to alert the DBA
+        team after an order is approved. Confirm with CDMP admin whether this
+        endpoint exists. May be replaced by an email or external notification.
+      parameters:
+        - name: "body"
+          in: "body"
+          required: true
+          schema:
+            $ref: "#/definitions/NotificationRequest"
+      responses:
+        200:
+          description: "Notification sent successfully."
+          schema:
+            $ref: "#/definitions/NotificationResponse"
+        400:
+          description: "Bad request."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        401:
+          description: "Unauthorized."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEFINITIONS (Schemas)
+# ─────────────────────────────────────────────────────────────────────────────
+definitions:
+
+  # ── Order (full order object) ───────────────────────────────────────────────
+  Order:
+    type: "object"
+    description: "A CDMP data access order."
+    properties:
+      orderId:
+        type: "string"
+        description: "Unique identifier of the order (UUID)."
+        example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      status:
+        type: "string"
+        description: "Current status of the order."
+        enum:
+          - "PENDING"
+          - "APPROVED"
+          - "REJECTED"
+          - "FULFILLED"
+          - "ERROR"
+        example: "PENDING"
+      requesterName:
+        type: "string"
+        description: "Full name of the person who placed the order."
+        example: "Jane Doe"
+      requesterEmail:
+        type: "string"
+        description: "Email address of the requester."
+        example: "jane.doe@dominionenergy.com"
+      dataCollectionName:
+        type: "string"
+        description: "Name of the CDMP data collection being requested."
+        example: "Customer Transactions - Q1"
+      dataCollectionDescription:
+        type: "string"
+        description: "Description of the data collection."
+        example: "Quarterly customer transaction records for Q1."
+      dataDomain:
+        type: "string"
+        description: "Business domain of the data collection."
+        example: "Finance"
+      dataClassification:
+        type: "string"
+        description: "Sensitivity classification of the data collection."
+        enum:
+          - "Public"
+          - "Internal"
+          - "Confidential"
+          - "Restricted"
+        example: "Confidential"
+      dataOwnerName:
+        type: "string"
+        description: "Name of the data owner or steward."
+        example: "John Smith"
+      dataOwnerEmail:
+        type: "string"
+        description: "Email address of the data owner or steward."
+        example: "john.smith@dominionenergy.com"
+      accessType:
+        type: "string"
+        description: "Type of access requested."
+        enum:
+          - "READ"
+          - "READ_WRITE"
+          - "EXPORT"
+        example: "READ"
+      role:
+        type: "string"
+        description: "Organizational role or persona of the requester."
+        example: "Data Analyst"
+      businessJustification:
+        type: "string"
+        description: "Business justification provided by the requester."
+        example: "Required for Q2 revenue analysis project."
+      targetEnvironment:
+        type: "string"
+        description: "Target environment for data access."
+        enum:
+          - "Development"
+          - "Test"
+          - "Production"
+        example: "Production"
+      snTicketNumber:
+        type: "string"
+        description: "ServiceNow request number written back by integration. Null until ticket is created."
+        example: "REQ0001234"
+      snSysId:
+        type: "string"
+        description: "ServiceNow sys_id written back by integration. Used for subsequent SN API calls."
+        example: "abc123def456ghi789"
+      integrationStatus:
+        type: "string"
+        description: "Status of the CAI integration write-back."
+        enum:
+          - "Synced"
+          - "Write-back Failed"
+          - "Pending Sync"
+        example: "Synced"
+      rejectionReason:
+        type: "string"
+        description: "Reason for rejection, populated when status = REJECTED."
+        example: "Insufficient business justification provided."
+      createdDate:
+        type: "string"
+        format: "date-time"
+        description: "ISO 8601 timestamp when the order was created."
+        example: "2025-06-01T10:00:00Z"
+      updatedDate:
+        type: "string"
+        format: "date-time"
+        description: "ISO 8601 timestamp of the last update."
+        example: "2025-06-02T14:30:00Z"
+
+  # ── OrderListResponse ────────────────────────────────────────────────────────
+  OrderListResponse:
+    type: "object"
+    description: "Paginated list of orders."
+    properties:
+      orders:
+        type: "array"
+        items:
+          $ref: "#/definitions/Order"
+      totalCount:
+        type: "integer"
+        description: "Total number of orders matching the filter."
+        example: 12
+      pageSize:
+        type: "integer"
+        description: "Number of records per page."
+        example: 50
+      pageNumber:
+        type: "integer"
+        description: "Current page number."
+        example: 1
+      totalPages:
+        type: "integer"
+        description: "Total number of pages."
+        example: 1
+
+  # ── OrderUpdateRequest ───────────────────────────────────────────────────────
+  OrderUpdateRequest:
+    type: "object"
+    description: >
+      Partial update payload for a CDMP order. Only include fields that need
+      to be changed. Used in three scenarios by the integration:
+      (1) Write-back: provide snTicketNumber + snSysId + integrationStatus.
+      (2) Status update: provide status (+ rejectionReason if REJECTED).
+      (3) Fulfillment: provide status = FULFILLED.
+    properties:
+      status:
+        type: "string"
+        description: "New status for the order."
+        enum:
+          - "PENDING"
+          - "APPROVED"
+          - "REJECTED"
+          - "FULFILLED"
+          - "ERROR"
+        example: "APPROVED"
+      snTicketNumber:
+        type: "string"
+        description: "ServiceNow request number to store on the order."
+        example: "REQ0001234"
+      snSysId:
+        type: "string"
+        description: "ServiceNow sys_id to store on the order for future API calls."
+        example: "abc123def456ghi789"
+      integrationStatus:
+        type: "string"
+        description: "Integration sync status."
+        enum:
+          - "Synced"
+          - "Write-back Failed"
+          - "Pending Sync"
+        example: "Synced"
+      rejectionReason:
+        type: "string"
+        description: "Reason for rejection. Required when status = REJECTED."
+        example: "Request denied by L1 approver — insufficient justification."
+
+  # ── NotificationRequest ──────────────────────────────────────────────────────
+  NotificationRequest:
+    type: "object"
+    description: "Request to send a notification from CDMP (e.g., DBA provisioning alert)."
+    required:
+      - "orderId"
+      - "notificationType"
+    properties:
+      orderId:
+        type: "string"
+        description: "ID of the order the notification relates to."
+        example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      notificationType:
+        type: "string"
+        description: "Type of notification to send."
+        enum:
+          - "DBA_PROVISION"
+          - "ORDER_APPROVED"
+          - "ORDER_REJECTED"
+        example: "DBA_PROVISION"
+      recipientEmail:
+        type: "string"
+        description: "Email address of the notification recipient."
+        example: "dba-team@dominionenergy.com"
+      message:
+        type: "string"
+        description: "Optional custom message body."
+        example: "Order REQ0001234 has been approved. Please provision data access for Jane Doe."
+
+  # ── NotificationResponse ─────────────────────────────────────────────────────
+  NotificationResponse:
+    type: "object"
+    properties:
+      notificationId:
+        type: "string"
+        description: "Unique ID of the notification sent."
+        example: "notif-xyz-789"
+      status:
+        type: "string"
+        example: "Sent"
+
+  # ── ErrorResponse ────────────────────────────────────────────────────────────
+  ErrorResponse:
+    type: "object"
+    description: "Standard error response."
+    properties:
+      errorCode:
+        type: "string"
+        description: "Machine-readable error code."
+        example: "ORDER_NOT_FOUND"
+      message:
+        type: "string"
+        description: "Human-readable error message."
+        example: "The requested order was not found."
+      details:
+        type: "string"
+        description: "Additional error context."
+        example: "orderId a1b2c3d4 does not exist in the system."
